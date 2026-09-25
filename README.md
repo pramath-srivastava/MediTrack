@@ -15,7 +15,6 @@ MediTrack is a responsive medication scheduling and adherence tracker. Accounts,
 
 - Node.js 20 or newer and npm.
 - MongoDB Atlas or another MongoDB deployment.
-- Vercel CLI for combined local front-end and serverless API development.
 
 ## Local setup
 
@@ -29,23 +28,39 @@ MediTrack is a responsive medication scheduling and adherence tracker. Accounts,
    JWT_SECRET=at-least-32-random-characters-that-are-kept-secret
    NODE_ENV=development
    APP_URL=http://localhost:3000
+   API_BASE_URL=
    ```
 
-5. Run `npm run dev`, then open the URL printed by Vercel.
+5. Run `npm run dev`, then open `http://localhost:3000`.
 6. Run `npm run check` for JavaScript syntax checks.
 
-`npm start` starts the API only. Use `vercel dev` through `npm run dev` when developing the complete application, because it serves the static client and rewrites `/api/*` to the function.
+`npm start` and `npm run dev` run the complete application: the Express server serves the existing static client and mounts the existing API at `/api`.
 
 ## MongoDB
 
 Create a database user with access only to this application database. Add the network access entry required by your deployment, then place the full connection string in `MONGODB_URI`. URL-encode special characters in the database password. Do not commit `.env`, the connection string, or the JWT secret.
 
-## Vercel deployment
+## Render deployment (free web service)
 
-1. Push the project to a Git repository and import it into Vercel. If the repository contains this project in a subdirectory, set the Vercel project root to `MediTrack`.
-2. In Vercel project environment variables, add `MONGODB_URI`, `JWT_SECRET`, `NODE_ENV=production`, and `APP_URL=https://your-project.vercel.app` for each environment that will use the API.
-3. Deploy. Vercel automatically runs `api/index.js` as the serverless function and serves the static files from this directory.
-4. Confirm `https://your-project.vercel.app/api/health` returns `{ "ok": true }`, then register an account and create a medicine.
+This deployment uses one Render Web Service for both the existing frontend and Express API, so browser sessions remain same-origin and the existing HTTP-only authentication and CSRF protections keep working.
+
+1. Push this repository to GitHub. In Render, select **New > Web Service**, connect the repository, and select the `main` branch. If this project is inside a larger repository, set **Root Directory** to `MediTrack`; otherwise leave it blank.
+2. Select **Node**, choose the **Free** instance type, and set **Build Command** to `npm ci` and **Start Command** to `npm start`. These settings are also recorded in `render.yaml`.
+3. Add these environment variables in Render before the first deploy:
+
+   ```env
+   MONGODB_URI=mongodb+srv://USER:PASSWORD@CLUSTER/meditrack?retryWrites=true&w=majority
+   JWT_SECRET=at-least-32-random-characters-that-are-kept-secret
+   NODE_ENV=production
+   APP_URL=https://YOUR-SERVICE.onrender.com
+   API_BASE_URL=https://YOUR-SERVICE.onrender.com
+   ```
+
+   Generate a unique `JWT_SECRET` of at least 32 characters. Do not commit either secret. `API_BASE_URL` is served at runtime through `/config.js`; it can be left unset only when the client and API are hosted at the same Render URL.
+4. Create the service, wait for the deploy to finish, then open `https://YOUR-SERVICE.onrender.com/api/health`. It should return `{ "ok": true }`. Open the main URL and register a real account to verify the application.
+5. In MongoDB Atlas, allow network access from Render and ensure the database user in `MONGODB_URI` can access the MediTrack database. Use Atlas data; the service does not create or use demo data.
+
+Render Free web services can sleep after 15 minutes without traffic, so the next request can take about a minute to start. They also use an ephemeral filesystem; this application is unaffected because persistent application data stays in MongoDB Atlas.
 
 Production cookies are `Secure`, `HttpOnly`, and `SameSite=Lax`. Mutating requests require a CSRF token and requests with an unexpected configured origin are rejected. The browser client sends same-origin credentials only.
 

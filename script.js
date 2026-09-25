@@ -4,6 +4,7 @@
   const $$ = (s, root = document) => [...root.querySelectorAll(s)];
   const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const apiBaseUrl = (window.MEDITRACK_API_URL || '').replace(/\/$/, '');
   let state = { user: null, medications: [], today: [], history: [], analytics: null, patients: [] };
   let chart;
   const escapeHTML = (value = '') => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -16,7 +17,7 @@
     const headers = { Accept: 'application/json', ...(options.headers || {}) };
     if (options.body) headers['Content-Type'] = 'application/json';
     if (!['GET', 'HEAD'].includes((options.method || 'GET').toUpperCase())) headers['X-CSRF-Token'] = csrf();
-    const res = await fetch(`/api${path}`, { ...options, headers, credentials: 'same-origin' });
+    const res = await fetch(`${apiBaseUrl}/api${path}`, { ...options, headers, credentials: 'same-origin' });
     const body = res.status === 204 ? null : await res.json().catch(() => ({}));
     if (!res.ok) { const err = new Error(body.error || 'The request could not be completed.'); err.status = res.status; throw err; }
     return body;

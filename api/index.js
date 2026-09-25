@@ -188,7 +188,7 @@ app.use((error, req, res, next) => {
   res.status(status).json({ error: status >= 500 ? 'The service could not complete this request.' : error.message });
 });
 
-if (!process.env.VERCEL) {
+if (require.main === module) {
   const port = Number(process.env.PORT) || 3000;
   app.listen(port, () => console.log(`MediTrack API listening on ${port}`));
 }

@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "description": "Medication scheduling and adherence tracking web application",
-  "main": "api/index.js",
+  "main": "server.js",
   "scripts": {
-    "dev": "vercel dev",
-    "start": "node api/index.js",
-    "check": "node --check api/index.js && node --check script.js"
+    "dev": "node server.js",
+    "start": "node server.js",
+    "check": "node --check server.js && node --check api/index.js && node --check config.js && node --check script.js"
   },
   "engines": { "node": ">=20" },
   "dependencies": {
