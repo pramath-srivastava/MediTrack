@@ -1,8 +1,8 @@
 {
-  "name": "meditrack-mvp",
+  "name": "meditrack",
   "version": "1.0.0",
   "private": true,
-  "description": "Educational medication adherence and reminder prototype",
+  "description": "Medication scheduling and adherence tracking web application",
   "main": "api/index.js",
   "scripts": {
     "dev": "vercel dev",

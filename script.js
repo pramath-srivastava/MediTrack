@@ -1,211 +1,75 @@
 (() => {
   'use strict';
-  const STORAGE_KEY = 'meditrack_demo_v1';
+  const $ = (s, root = document) => root.querySelector(s);
+  const $$ = (s, root = document) => [...root.querySelectorAll(s)];
   const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const $ = (selector, root = document) => root.querySelector(selector);
-  const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-  const today = new Date();
-  const localKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-  const isoDate = localKey(today);
-  const dateOffset = (amount) => { const date = new Date(); date.setDate(date.getDate() + amount); return localKey(date); };
-  const escapeHTML = (value = '') => String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
-  const makeId = () => (globalThis.crypto?.randomUUID?.() || `id-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  const seed = () => {
-    const meds = [
-      { id: 'med-a', name: 'Vitamin D', dosage: '1 capsule', frequency: 'WEEKLY', times: ['09:00'], weekdays: [0], startDate: dateOffset(-45), endDate: '', instructions: 'After breakfast', isActive: true },
-      { id: 'med-b', name: 'Daily medication', dosage: '1 tablet', frequency: 'DAILY', times: ['08:00', '20:00'], weekdays: [], startDate: dateOffset(-30), endDate: '', instructions: 'Follow your prescription label', isActive: true },
-      { id: 'med-c', name: 'Evening supplement', dosage: '1 tablet', frequency: 'DAILY', times: ['19:30'], weekdays: [], startDate: dateOffset(-18), endDate: '', instructions: '', isActive: true }
-    ];
-    const events = [];
-    for (let offset = -6; offset <= 0; offset += 1) {
-      const date = dateOffset(offset);
-      const weekday = new Date(`${date}T12:00:00`).getDay();
-      meds.forEach((med, index) => {
-        if (med.frequency === 'WEEKLY' && !med.weekdays.includes(weekday)) return;
-        med.times.forEach((time, timeIndex) => {
-          if (date === isoDate && time > new Date().toTimeString().slice(0, 5)) return;
-          let status = (offset + index + timeIndex) % 7 === 0 ? 'SKIPPED' : 'TAKEN';
-          if (date === isoDate && time === '20:00') status = 'PENDING';
-          events.push({ id: `${med.id}-${date}-${time}`, medicationId: med.id, date, time, status, takenAt: status === 'TAKEN' ? `${date}T${time}:00` : null });
-        });
-      });
-    }
-    return { mode: 'demo', user: { name: 'Alex Morgan', email: 'patient@example.com', role: 'PATIENT', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata' }, medications: meds, events, connections: [], invited: [], notificationPermission: 'default' };
-  };
-  function loadData() {
-    // Demo data is loaded only when the user is explicitly in the browser demo. It is never an API fallback.
-    try { const stored = localStorage.getItem(STORAGE_KEY); if (stored) return JSON.parse(stored); } catch { /* Invalid local demo state is reset below. */ }
-    const initial = seed(); saveData(initial); return initial;
+  let state = { user: null, medications: [], today: [], history: [], analytics: null, patients: [] };
+  let chart;
+  const escapeHTML = (value = '') => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const dateKey = () => new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const timeLabel = time => { const [h, m] = time.split(':').map(Number); const d = new Date(); d.setHours(h, m); return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); };
+  const dateLabel = date => new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  const statusMarkup = status => `<span class="status-badge status-${String(status).toLowerCase()}">${escapeHTML(status[0] + status.slice(1).toLowerCase())}</span>`;
+  const csrf = () => document.cookie.split('; ').find(row => row.startsWith('csrf='))?.split('=').slice(1).join('') || '';
+  async function api(path, options = {}) {
+    const headers = { Accept: 'application/json', ...(options.headers || {}) };
+    if (options.body) headers['Content-Type'] = 'application/json';
+    if (!['GET', 'HEAD'].includes((options.method || 'GET').toUpperCase())) headers['X-CSRF-Token'] = csrf();
+    const res = await fetch(`/api${path}`, { ...options, headers, credentials: 'same-origin' });
+    const body = res.status === 204 ? null : await res.json().catch(() => ({}));
+    if (!res.ok) { const err = new Error(body.error || 'The request could not be completed.'); err.status = res.status; throw err; }
+    return body;
   }
-  let state = loadData();
-  let chart = null;
-  function saveData(next = state) { state = next; try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { toast('This browser could not save demo data.', true); } }
-  function toast(message, error = false) { const item = document.createElement('div'); item.className = `toast${error ? ' error' : ''}`; item.textContent = message; $('#toast-region').append(item); window.setTimeout(() => item.remove(), 3500); }
-  function dateLabel(key, options = { month: 'short', day: 'numeric' }) { return new Date(`${key}T12:00:00`).toLocaleDateString(undefined, options); }
-  function timeLabel(time) { const [hour, minute] = time.split(':').map(Number); const date = new Date(); date.setHours(hour, minute, 0, 0); return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
-  function medication(id) { return state.medications.find((item) => item.id === id); }
-  function occurrenceFor(med, date, time) { return state.events.find((event) => event.medicationId === med.id && event.date === date && event.time === time); }
-  function matchesDate(med, date) {
-    if (!med.isActive || date < med.startDate || (med.endDate && date > med.endDate)) return false;
-    const day = new Date(`${date}T12:00:00`).getDay();
-    if (med.frequency === 'WEEKDAYS' && (day === 0 || day === 6)) return false;
-    if ((med.frequency === 'WEEKLY' || med.frequency === 'CUSTOM') && !med.weekdays.includes(day)) return false;
-    return true;
-  }
-  function ensureOccurrences(date) {
-    let changed = false;
-    state.medications.forEach((med) => {
-      if (!matchesDate(med, date)) return;
-      med.times.forEach((time) => {
-        if (occurrenceFor(med, date, time)) return;
-        let status = 'PENDING';
-        if (date < isoDate || (date === isoDate && time < new Date().toTimeString().slice(0, 5))) status = 'MISSED';
-        state.events.push({ id: `${med.id}-${date}-${time}`, medicationId: med.id, date, time, status, takenAt: null }); changed = true;
-      });
-    });
-    if (changed) saveData();
-  }
-  function getTodayEvents() { ensureOccurrences(isoDate); return state.events.filter((item) => item.date === isoDate && medication(item.medicationId)).sort((a, b) => a.time.localeCompare(b.time)); }
-  function weekEvents() { const from = dateOffset(-6); return state.events.filter((event) => event.date >= from && event.date <= isoDate && medication(event.medicationId)); }
-  function percent(events) { const due = events.filter((event) => event.status !== 'PENDING'); return due.length ? Math.round(due.filter((event) => event.status === 'TAKEN').length / due.length * 100) : null; }
+  function toast(message, error = false) { const item = document.createElement('div'); item.className = `toast${error ? ' error' : ''}`; item.textContent = message; $('#toast-region').append(item); setTimeout(() => item.remove(), 4000); }
+  function setBusy(button, busy, label) { if (!button) return; button.disabled = busy; if (busy) { button.dataset.label = button.textContent; button.textContent = label || 'Saving…'; } else if (button.dataset.label) button.textContent = button.dataset.label; }
+  function showAuth(view = 'landing') { $('#app-shell').hidden = true; $('#auth-shell').hidden = false; ['landing', 'login', 'register'].forEach(name => { const node = $(`#${name}-panel`) || $(`#${name}-form`); if (node) node.hidden = name !== view; }); }
+  function showApp() { $('#auth-shell').hidden = true; $('#app-shell').hidden = false; }
+  function isPatient() { return state.user?.role === 'PATIENT'; }
   function renderHeader() {
-    const hour = new Date().getHours();
-    $('#greeting').textContent = `${hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'}, ${state.user.name.split(' ')[0]}`;
-    $('#today-label').textContent = today.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase();
-    $('#avatar')?.setAttribute('aria-label', `Profile for ${state.user.name}`);
-    $('#profile-shortcut').textContent = state.user.name.trim().charAt(0).toUpperCase() || 'A';
-    $('#profile-name').value = state.user.name;
-    $('#profile-email').value = state.user.email;
-    $('#profile-role').value = state.user.role === 'PATIENT' ? 'Patient' : 'Caregiver';
-    $('#timezone').value = state.user.timezone;
-    const permission = 'Notification' in window ? Notification.permission : 'unavailable';
-    $('#notification-status').textContent = `Permission status: ${permission === 'granted' ? 'enabled' : permission === 'denied' ? 'blocked in browser settings' : permission === 'default' ? 'not requested' : 'unavailable'}`;
-    $('#mode-label').textContent = state.mode === 'demo' ? 'Demo mode' : 'Live account';
-    $('#demo-banner').hidden = state.mode !== 'demo';
+    const user = state.user; if (!user) return;
+    const hour = new Date().getHours(); const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+    $('#greeting').textContent = `${greeting}, ${user.name.split(' ')[0]}`; $('#today-label').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase();
+    $('#profile-shortcut').textContent = user.name.charAt(0).toUpperCase(); $('#profile-shortcut').setAttribute('aria-label', `Open profile for ${user.name}`);
+    $('#profile-name').value = user.name; $('#profile-email').value = user.email; $('#profile-role').value = user.role === 'PATIENT' ? 'Patient' : 'Caregiver';
+    if ([...$('#timezone').options].some(o => o.value === user.timezone)) $('#timezone').value = user.timezone;
+    const permission = 'Notification' in window ? Notification.permission : 'unavailable'; $('#notification-status').textContent = `Permission status: ${permission === 'granted' ? 'enabled' : permission === 'denied' ? 'blocked in browser settings' : permission === 'default' ? 'not requested' : 'unavailable'}`;
+    $$('.patient-only').forEach(node => { node.hidden = !isPatient(); }); $('#patient-caregiver').hidden = !isPatient(); $('#caregiver-panel').hidden = isPatient();
   }
-  function statusMarkup(status) { const names = { TAKEN: 'Taken', SKIPPED: 'Skipped', MISSED: 'Missed', PENDING: 'Pending' }; return `<span class="status-badge status-${status.toLowerCase()}">${names[status] || status}</span>`; }
   function renderDashboard() {
-    const events = getTodayEvents();
-    $('#today-count').textContent = events.length;
-    $('#taken-count').textContent = events.filter((event) => event.status === 'TAKEN').length;
-    const score = percent(weekEvents()); $('#weekly-score').textContent = score === null ? '—' : `${score}%`;
-    const container = $('#today-list');
-    if (!events.length) { container.innerHTML = `<div class="empty-note">No medicines scheduled today. Add your first medicine when you're ready.</div>`; }
-    else container.innerHTML = events.map((event) => {
-      const med = medication(event.medicationId); const actionable = event.status === 'PENDING';
-      return `<article class="dose-item"><time class="dose-time">${timeLabel(event.time)}</time><div class="dose-details"><strong>${escapeHTML(med.name)}</strong><span>${escapeHTML(med.dosage)}${med.instructions ? ` · ${escapeHTML(med.instructions)}` : ''}</span></div>${actionable ? `<div class="dose-actions"><button class="button primary" data-dose="${escapeHTML(event.id)}" data-status="TAKEN">Taken</button><button class="button secondary" data-dose="${escapeHTML(event.id)}" data-status="SKIPPED">Skip</button></div>` : statusMarkup(event.status)}</article>`;
-    }).join('');
-    const next = events.find((event) => event.status === 'PENDING');
-    $('#next-dose').innerHTML = next ? `<div class="reminder-card"><strong>${escapeHTML(medication(next.medicationId).name)}</strong><span>${timeLabel(next.time)} · ${escapeHTML(medication(next.medicationId).dosage)}</span></div><p class="small muted">${next.time <= new Date().toTimeString().slice(0, 5) ? 'This dose is due now.' : `Scheduled for ${timeLabel(next.time)}.`}</p>` : '<p class="muted">You’re all caught up.</p>';
-    const permission = 'Notification' in window ? Notification.permission : 'unavailable';
-    $('#notification-btn').textContent = permission === 'granted' ? 'Browser notifications enabled' : permission === 'denied' ? 'Notifications blocked in browser settings' : 'Enable browser notifications';
-    $('#notification-btn').disabled = permission === 'granted' || permission === 'denied' || permission === 'unavailable';
+    const doses = state.today; $('#today-count').textContent = doses.length; $('#taken-count').textContent = doses.filter(d => d.status === 'TAKEN').length; $('#weekly-score').textContent = state.analytics?.adherence == null ? '—' : `${state.analytics.adherence}%`;
+    if (!isPatient()) { $('#home-subtitle').textContent = 'Review the patients who have shared access with you.'; $('#today-heading').textContent = 'Connected patients'; $('#today-list').innerHTML = state.patients.length ? state.patients.map(p => `<article class="medicine-item"><div class="dose-details"><strong>${escapeHTML(p.name)}</strong><span class="subline">${escapeHTML(p.email)}</span></div><button class="button secondary" data-patient="${p.id}">View activity</button></article>`).join('') : '<p class="empty-note">No patient has shared access with you yet.</p>'; $('#next-dose').innerHTML = '<p class="muted">Accept an invitation token in Caregiver access to view a patient.</p>'; return; }
+    $('#home-subtitle').textContent = 'Your current medication plan.'; $('#today-heading').textContent = "Today's medicines";
+    $('#today-list').innerHTML = doses.length ? doses.map(d => `<article class="dose-item"><time class="dose-time">${timeLabel(d.time)}</time><div class="dose-details"><strong>${escapeHTML(d.medication.name)}</strong><span>${escapeHTML(d.medication.dosage)}${d.medication.instructions ? ` · ${escapeHTML(d.medication.instructions)}` : ''}</span></div>${d.status === 'PENDING' ? `<div class="dose-actions"><button class="button primary" data-dose="${d.id}" data-status="TAKEN">Taken</button><button class="button secondary" data-dose="${d.id}" data-status="SKIPPED">Skip</button></div>` : statusMarkup(d.status)}</article>`).join('') : '<p class="empty-note">No medicines are scheduled today.</p>';
+    const next = doses.find(d => d.status === 'PENDING'); $('#next-dose').innerHTML = next ? `<div class="reminder-card"><strong>${escapeHTML(next.medication.name)}</strong><span>${timeLabel(next.time)} · ${escapeHTML(next.medication.dosage)}</span></div>` : '<p class="muted">You’re all caught up.</p>';
   }
-  function renderMedicines() {
-    const list = $('#medicine-list'); const meds = state.medications;
-    if (!meds.length) { list.innerHTML = '<div class="empty-note">No medicines added yet. Add your first medicine to build your schedule.</div>'; return; }
-    list.innerHTML = meds.map((med) => {
-      const days = med.frequency === 'DAILY' ? 'Every day' : med.frequency === 'WEEKDAYS' ? 'Weekdays' : med.weekdays.map((day) => DAY_NAMES[day]).join(', ');
-      return `<article class="medicine-item"><div class="dose-details"><strong>${escapeHTML(med.name)} ${!med.isActive ? '<span class="status-badge status-pending">Inactive</span>' : ''}</strong><span class="subline">${escapeHTML(med.dosage)} · ${escapeHTML(days)} · ${med.times.map(timeLabel).join(', ')}</span>${med.instructions ? `<span class="subline">${escapeHTML(med.instructions)}</span>` : ''}<span class="subline">Starts ${dateLabel(med.startDate)}${med.endDate ? ` · Ends ${dateLabel(med.endDate)}` : ''}</span></div><div class="dose-actions"><button class="button secondary" data-edit="${escapeHTML(med.id)}">Edit</button><button class="button secondary" data-toggle="${escapeHTML(med.id)}">${med.isActive ? 'Pause' : 'Resume'}</button><button class="button secondary" data-delete="${escapeHTML(med.id)}" aria-label="Delete ${escapeHTML(med.name)}">Delete</button></div></article>`;
-    }).join('');
-  }
-  function renderHistory() {
-    const status = $('#status-filter').value; const date = $('#date-filter').value;
-    const events = [...state.events].filter((event) => medication(event.medicationId) && (!date || event.date === date) && (status === 'ALL' || event.status === status)).sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`));
-    $('#history-rows').innerHTML = events.length ? events.map((event) => `<tr><td>${dateLabel(event.date, { month: 'short', day: 'numeric', year: 'numeric' })}</td><td>${escapeHTML(medication(event.medicationId).name)}</td><td>${timeLabel(event.time)}</td><td>${statusMarkup(event.status)}</td></tr>`).join('') : '<tr><td class="empty-row" colspan="4">No activity for this date.</td></tr>';
-  }
-  function renderAnalytics() {
-    const events = weekEvents(); const score = percent(events); const taken = events.filter((event) => event.status === 'TAKEN').length;
-    $('#analytics-score').textContent = score === null ? '—' : `${score}%`; $('#analytics-taken').textContent = taken;
-    $('#analytics-other').textContent = events.filter((event) => ['MISSED', 'SKIPPED'].includes(event.status)).length;
-    const labels = []; const values = [];
-    for (let offset = -6; offset <= 0; offset += 1) { const key = dateOffset(offset); const daily = events.filter((event) => event.date === key); labels.push(new Date(`${key}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short' })); values.push(percent(daily)); }
-    $('#chart-empty').hidden = events.length > 0;
-    if (!window.Chart) return;
-    const context = $('#adherence-chart').getContext('2d');
-    if (chart) chart.destroy();
-    chart = new Chart(context, { type: 'bar', data: { labels, datasets: [{ label: 'Adherence', data: values, backgroundColor: '#176b5b', borderRadius: 5, maxBarThickness: 34 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: (context) => context.raw === null ? 'No completed doses' : `${context.raw}%` } } }, scales: { y: { beginAtZero: true, max: 100, ticks: { stepSize: 25, callback: (value) => `${value}%` }, grid: { color: '#edf0ed' }, border: { display: false } }, x: { grid: { display: false }, border: { display: false } } } } });
-  }
-  function renderCaregiver() {
-    const rows = [...state.connections.map((item) => ({ ...item, state: 'Connected' })), ...state.invited.map((item) => ({ ...item, state: 'Invitation created' }))];
-    $('#connection-list').innerHTML = rows.length ? rows.map((item) => `<div class="connection-card"><div class="connection-main"><strong>${escapeHTML(item.email)}</strong><span class="subline">${item.state}</span></div><button class="text-button danger-text" data-revoke="${escapeHTML(item.id)}" data-kind="${item.state === 'Connected' ? 'connection' : 'invitation'}">${item.state === 'Connected' ? 'Revoke' : 'Cancel'}</button></div>`).join('') : '<p class="muted">No caregiver connected yet.</p>';
-  }
+  function scheduleText(med) { return med.frequency === 'DAILY' ? 'Every day' : med.frequency === 'WEEKDAYS' ? 'Weekdays' : med.weekdays.map(d => DAY_NAMES[d]).join(', '); }
+  function renderMedicines() { const list = $('#medicine-list'); if (!isPatient()) return; list.innerHTML = state.medications.length ? state.medications.map(m => `<article class="medicine-item"><div class="dose-details"><strong>${escapeHTML(m.name)} ${!m.isActive ? '<span class="status-badge status-pending">Inactive</span>' : ''}</strong><span class="subline">${escapeHTML(m.dosage)} · ${escapeHTML(scheduleText(m))} · ${m.times.map(timeLabel).join(', ')}</span>${m.instructions ? `<span class="subline">${escapeHTML(m.instructions)}</span>` : ''}<span class="subline">Starts ${dateLabel(m.startDate)}${m.endDate ? ` · Ends ${dateLabel(m.endDate)}` : ''}</span></div><div class="dose-actions"><button class="button secondary" data-edit="${m._id}">Edit</button><button class="button secondary" data-toggle="${m._id}">${m.isActive ? 'Pause' : 'Resume'}</button><button class="button secondary" data-delete="${m._id}">Delete</button></div></article>`).join('') : '<p class="empty-note">No medicines added yet.</p>'; }
+  function renderHistory() { if (!isPatient()) return; const status = $('#status-filter').value, date = $('#date-filter').value; const rows = state.history.filter(d => (!date || d.date === date) && (status === 'ALL' || d.status === status)); $('#history-rows').innerHTML = rows.length ? rows.map(d => `<tr><td>${dateLabel(d.date)}</td><td>${escapeHTML(d.medication.name)}</td><td>${timeLabel(d.time)}</td><td>${statusMarkup(d.status)}</td></tr>`).join('') : '<tr><td class="empty-row" colspan="4">No dose activity found.</td></tr>'; }
+  function renderAnalytics() { if (!isPatient() || !state.analytics) return; const a = state.analytics; $('#analytics-score').textContent = a.adherence == null ? '—' : `${a.adherence}%`; $('#analytics-taken').textContent = a.taken; $('#analytics-other').textContent = a.skipped + a.missed; $('#chart-empty').hidden = a.days.some(d => d.scheduled); if (!window.Chart) return; if (chart) chart.destroy(); chart = new Chart($('#adherence-chart'), { type: 'bar', data: { labels: a.days.map(d => new Date(`${d.date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short' })), datasets: [{ label: 'Adherence', data: a.days.map(d => d.adherence), backgroundColor: '#176b5b', borderRadius: 5, maxBarThickness: 34 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, max: 100, ticks: { callback: n => `${n}%` } }, x: { grid: { display: false } } } } }); }
+  async function renderCaregiver() { if (!isPatient()) { $('#patient-list').innerHTML = state.patients.length ? `<div class="divider"></div><h3>Connected patients</h3>${state.patients.map(p => `<div class="connection-card"><div class="connection-main"><strong>${escapeHTML(p.name)}</strong><span class="subline">${escapeHTML(p.email)}</span></div><button class="text-button danger-text" data-revoke="${p.connectionId}">Remove access</button></div>`).join('')}` : '<p class="muted">No patient connections yet.</p>'; return; } try { const result = await api('/caregiver/connections'); const rows = result.connections; $('#connection-list').innerHTML = rows.length ? rows.map(link => `<div class="connection-card"><div class="connection-main"><strong>${escapeHTML(link.caregiver?.name || 'Caregiver')}</strong><span class="subline">${escapeHTML(link.caregiver?.email || '')} · ${link.status === 'ACTIVE' ? 'Connected' : 'Awaiting acceptance'}</span></div><button class="text-button danger-text" data-revoke="${link.id}">${link.status === 'ACTIVE' ? 'Revoke' : 'Cancel'}</button></div>`).join('') : '<p class="muted">No caregiver connected yet.</p>'; } catch (e) { $('#connection-list').innerHTML = `<p class="muted">${escapeHTML(e.message)}</p>`; } }
   function render() { renderHeader(); renderDashboard(); renderMedicines(); renderHistory(); renderAnalytics(); renderCaregiver(); }
-  function showView(name) {
-    const target = $(`#view-${name}`); if (!target) return;
-    $$('.view').forEach((view) => view.classList.toggle('active', view === target));
-    $$('[data-view]').forEach((link) => link.classList.toggle('active', link.dataset.view === name));
-    const titles = { home: 'Overview', medicines: 'Medicines', history: 'History', analytics: 'Analytics', caregiver: 'Caregiver', profile: 'Profile & settings' };
-    $('#page-title').textContent = titles[name] || 'Overview'; $('#more-menu').hidden = true; $('#more-btn').setAttribute('aria-expanded', 'false');
-    if (name === 'analytics') renderAnalytics();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+  async function loadData() { if (!state.user) return; if (isPatient()) { const [meds, today, history, analytics] = await Promise.all([api('/medications'), api('/adherence/today'), api('/adherence/history?days=90'), api('/adherence/analytics')]); state.medications = meds.medications; state.today = today.doses; state.history = history.doses; state.analytics = analytics; } else { state.patients = (await api('/caregiver/patients')).patients; state.today = []; state.analytics = null; } render(); }
+  function showView(name) { const allowed = isPatient() ? ['home', 'medicines', 'history', 'analytics', 'caregiver', 'profile'] : ['home', 'caregiver', 'profile']; if (!allowed.includes(name)) name = 'home'; $$('.view').forEach(v => v.classList.toggle('active', v.id === `view-${name}`)); $$('[data-view]').forEach(n => n.classList.toggle('active', n.dataset.view === name)); $('#page-title').textContent = ({ home: 'Overview', medicines: 'Medicines', history: 'History', analytics: 'Analytics', caregiver: 'Caregiver', profile: 'Profile & settings' })[name]; $('#more-menu').hidden = true; if (name === 'caregiver') renderCaregiver(); if (name === 'analytics') renderAnalytics(); }
+  function route() { showView(location.hash.slice(1) || 'home'); }
+  function initWeekdays(selected = []) { $('#weekday-picker').innerHTML = DAYS.map((d, i) => `<label class="day-chip"><input type="checkbox" value="${i}" ${selected.includes(i) ? 'checked' : ''} aria-label="${DAY_NAMES[i]}"><span>${d[0]}</span></label>`).join(''); }
+  function openMedicine(med) { $('#medicine-form').reset(); $('#form-error').textContent = ''; $('#dialog-title').textContent = med ? 'Edit medicine' : 'Add medicine'; $('#medicine-id').value = med?._id || ''; $('#med-name').value = med?.name || ''; $('#med-dose').value = med?.dosage || ''; $('#med-frequency').value = med?.frequency || 'DAILY'; $('#med-times').value = med?.times?.join(', ') || ''; $('#med-start').value = med?.startDate || dateKey(); $('#med-end').value = med?.endDate || ''; $('#med-instructions').value = med?.instructions || ''; initWeekdays(med?.weekdays || []); $('#medicine-dialog').showModal(); }
+  async function saveMedicine(e) { e.preventDefault(); const button = $('#medicine-save'); const frequency = $('#med-frequency').value, times = $('#med-times').value.split(',').map(t => t.trim()).filter(Boolean), weekdays = $$('#weekday-picker input:checked').map(n => Number(n.value)); if ((frequency === 'WEEKLY' || frequency === 'CUSTOM') && !weekdays.length) { $('#form-error').textContent = 'Choose at least one day.'; return; } if (times.some(t => !/^([01]\d|2[0-3]):[0-5]\d$/.test(t)) || new Set(times).size !== times.length) { $('#form-error').textContent = 'Use unique 24-hour times, such as 08:00, 20:00.'; return; } const body = { name: $('#med-name').value.trim(), dosage: $('#med-dose').value.trim(), frequency, times, weekdays, startDate: $('#med-start').value, endDate: $('#med-end').value, instructions: $('#med-instructions').value.trim() }, id = $('#medicine-id').value; try { setBusy(button, true); await api(`/medications${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', body: JSON.stringify(body) }); $('#medicine-dialog').close(); await loadData(); toast(id ? 'Medicine updated.' : 'Medicine added.'); } catch (err) { $('#form-error').textContent = err.message; } finally { setBusy(button, false); } }
+  async function changeDose(id, status) { try { await api(`/adherence/${id}/${status.toLowerCase()}`, { method: 'POST' }); await loadData(); toast(status === 'TAKEN' ? 'Dose marked as taken.' : 'Dose marked as skipped.'); } catch (e) { toast(e.message, true); } }
+  async function logout() { try { await api('/auth/logout', { method: 'POST' }); } catch { /* Session may already be expired. */ } state = { user: null, medications: [], today: [], history: [], analytics: null, patients: [] }; showAuth('login'); location.hash = 'landing'; }
+  async function notifications() { if (!('Notification' in window)) return toast('Browser notifications are unavailable here.', true); const result = await Notification.requestPermission(); renderHeader(); if (result !== 'granted') toast('Notifications were not enabled.', true); }
+  function bind() {
+    document.addEventListener('click', async e => { const auth = e.target.closest('[data-auth-view]'); if (auth) showAuth(auth.dataset.authView); const nav = e.target.closest('[data-view]'); if (nav) { e.preventDefault(); location.hash = nav.dataset.view; } if (e.target.closest('[data-open-med-form]')) openMedicine(); if (e.target.closest('[data-close-dialog]')) $('#medicine-dialog').close(); const dose = e.target.closest('[data-dose]'); if (dose) changeDose(dose.dataset.dose, dose.dataset.status); const edit = e.target.closest('[data-edit]'); if (edit) openMedicine(state.medications.find(m => m._id === edit.dataset.edit)); const toggle = e.target.closest('[data-toggle]'); if (toggle) { const med = state.medications.find(m => m._id === toggle.dataset.toggle); if (med) { try { await api(`/medications/${med._id}`, { method: 'PUT', body: JSON.stringify({ ...med, isActive: !med.isActive }) }); await loadData(); } catch (err) { toast(err.message, true); } } } const revoke = e.target.closest('[data-revoke]'); if (revoke) { try { await api(`/caregiver/connections/${revoke.dataset.revoke}`, { method: 'DELETE' }); await loadData(); renderCaregiver(); toast('Access removed.'); } catch (err) { toast(err.message, true); } } });
+    $('#login-form').addEventListener('submit', async e => { e.preventDefault(); const b = e.submitter; $('#login-error').textContent = ''; try { setBusy(b, true); const r = await api('/auth/login', { method: 'POST', body: JSON.stringify({ email: $('#login-email').value, password: $('#login-password').value }) }); state.user = r.user; await loadData(); showApp(); route(); } catch (err) { state.user = null; showAuth('login'); $('#login-error').textContent = err.message; } finally { setBusy(b, false); } });
+    $('#register-form').addEventListener('submit', async e => { e.preventDefault(); const b = e.submitter; $('#register-error').textContent = ''; try { setBusy(b, true); const r = await api('/auth/register', { method: 'POST', body: JSON.stringify({ name: $('#register-name').value, email: $('#register-email').value, password: $('#register-password').value, role: $('#register-role').value, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' }) }); state.user = r.user; await loadData(); showApp(); route(); } catch (err) { state.user = null; showAuth('register'); $('#register-error').textContent = err.message; } finally { setBusy(b, false); } });
+    $('#medicine-form').addEventListener('submit', saveMedicine); $('#confirm-dialog').addEventListener('close', async e => { const id = e.currentTarget.dataset.id; if (e.currentTarget.returnValue === 'confirm' && id) { try { await api(`/medications/${id}`, { method: 'DELETE' }); await loadData(); toast('Medicine removed from your active schedule.'); } catch (err) { toast(err.message, true); } } }); $('#status-filter').addEventListener('change', renderHistory); $('#date-filter').addEventListener('change', renderHistory);
+    $('#profile-form').addEventListener('submit', async e => { e.preventDefault(); try { const r = await api('/profile', { method: 'PUT', body: JSON.stringify({ name: $('#profile-name').value, timezone: $('#timezone').value }) }); state.user = r.user; render(); toast('Profile updated.'); } catch (err) { toast(err.message, true); } });
+    $('#invite-form').addEventListener('submit', async e => { e.preventDefault(); const b = e.submitter; $('#invite-result').textContent = ''; try { setBusy(b, true); const r = await api('/caregiver/invite', { method: 'POST', body: JSON.stringify({ email: $('#invite-email').value }) }); $('#invite-result').textContent = `Share this one-time token securely: ${r.invitation.token}`; e.currentTarget.reset(); await renderCaregiver(); } catch (err) { $('#invite-result').textContent = err.message; } finally { setBusy(b, false); } });
+    $('#accept-invite-form').addEventListener('submit', async e => { e.preventDefault(); $('#caregiver-error').textContent = ''; try { await api('/caregiver/accept', { method: 'POST', body: JSON.stringify({ token: $('#invite-token').value.trim() }) }); e.currentTarget.reset(); await loadData(); toast('Caregiver access accepted.'); } catch (err) { $('#caregiver-error').textContent = err.message; } });
+    $('#logout-btn').addEventListener('click', logout); $('#mobile-signout').addEventListener('click', logout); $('#profile-shortcut').addEventListener('click', () => { location.hash = 'profile'; }); $('#notification-btn').addEventListener('click', notifications); $('#notification-settings').addEventListener('click', notifications); $('#menu-btn').addEventListener('click', () => { $('#more-menu').hidden = !$('#more-menu').hidden; }); $('#more-btn').addEventListener('click', () => { $('#more-menu').hidden = !$('#more-menu').hidden; }); window.addEventListener('hashchange', route);
+    document.addEventListener('click', e => { const del = e.target.closest('[data-delete]'); if (del) { $('#confirm-dialog').dataset.id = del.dataset.delete; $('#confirm-dialog').showModal(); } });
+    document.addEventListener('click', async e => { const patient = e.target.closest('[data-patient]'); if (!patient) return; try { const result = await api(`/caregiver/patient/${patient.dataset.patient}`); $('#next-dose').innerHTML = `<div class="reminder-card"><strong>${escapeHTML(result.patient.name)}</strong><span>${result.summary.taken} taken of ${result.summary.scheduled} scheduled today${result.summary.adherence == null ? '' : ` · ${result.summary.adherence}% adherence`}</span></div>`; } catch (error) { toast(error.message, true); } });
   }
-  function routeFromHash() { const view = location.hash.slice(1); showView(['home', 'medicines', 'history', 'analytics', 'caregiver', 'profile'].includes(view) ? view : 'home'); }
-  function initWeekdays(selected = []) { $('#weekday-picker').innerHTML = DAYS.map((day, index) => `<label class="day-chip"><input type="checkbox" value="${index}" ${selected.includes(index) ? 'checked' : ''} aria-label="${DAY_NAMES[index]}"><span>${day[0]}</span></label>`).join(''); }
-  const dialog = $('#medicine-dialog');
-  function openMedicineForm(med = null) {
-    $('#medicine-form').reset(); $('#form-error').textContent = ''; $('#dialog-title').textContent = med ? 'Edit medicine' : 'Add medicine'; $('#medicine-id').value = med?.id || '';
-    $('#med-name').value = med?.name || ''; $('#med-dose').value = med?.dosage || ''; $('#med-frequency').value = med?.frequency || 'DAILY'; $('#med-times').value = med?.times?.join(', ') || '';
-    $('#med-start').value = med?.startDate || isoDate; $('#med-end').value = med?.endDate || ''; $('#med-instructions').value = med?.instructions || ''; initWeekdays(med?.weekdays || []);
-    dialog.showModal(); $('#med-name').focus();
-  }
-  function saveMedication(event) {
-    event.preventDefault(); const form = event.currentTarget; if (!form.reportValidity()) return;
-    const frequency = $('#med-frequency').value; const times = $('#med-times').value.split(',').map((time) => time.trim()); const days = $$('#weekday-picker input:checked').map((input) => Number(input.value));
-    if (['WEEKLY', 'CUSTOM'].includes(frequency) && !days.length) { $('#form-error').textContent = 'Choose at least one day for this schedule.'; return; }
-    if ($('#med-end').value && $('#med-end').value < $('#med-start').value) { $('#form-error').textContent = 'End date must be on or after the start date.'; return; }
-    if (times.some((time) => !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) || new Set(times).size !== times.length) { $('#form-error').textContent = 'Enter unique times in 24-hour format, such as 08:00, 20:00.'; return; }
-    const id = $('#medicine-id').value; const existing = id ? medication(id) : null;
-    const next = { id: id || makeId(), name: $('#med-name').value.trim(), dosage: $('#med-dose').value.trim(), frequency, times, weekdays: frequency === 'WEEKLY' || frequency === 'CUSTOM' ? days : [], startDate: $('#med-start').value, endDate: $('#med-end').value, instructions: $('#med-instructions').value.trim(), isActive: existing?.isActive ?? true };
-    if (existing) state.medications = state.medications.map((item) => item.id === id ? next : item); else state.medications.push(next);
-    saveData(); dialog.close(); render(); toast(existing ? 'Your changes have been saved.' : 'Medicine added to your schedule.');
-  }
-  async function changeDose(id, status) {
-    const event = state.events.find((item) => item.id === id); if (!event || event.status !== 'PENDING') return;
-    event.status = status; event.takenAt = status === 'TAKEN' ? new Date().toISOString() : null; saveData(); render(); toast(status === 'TAKEN' ? 'Dose marked as taken.' : 'Dose marked as skipped.');
-  }
-  async function enableNotifications() {
-    if (!('Notification' in window)) { toast('Browser notifications are not available here.', true); return; }
-    const permission = await Notification.requestPermission(); state.notificationPermission = permission; saveData(); render();
-    if (permission === 'granted') toast('Browser notifications enabled. Keep MediTrack open for reminders.');
-    else if (permission === 'denied') toast('Notifications are blocked. You can change this in browser settings.', true);
-  }
-  function checkReminders() {
-    if (!('Notification' in window) || Notification.permission !== 'granted') return;
-    const now = new Date(); const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    getTodayEvents().filter((event) => event.status === 'PENDING' && event.time === time).forEach((event) => {
-      const sentKey = `meditrack_notice_${event.id}`; if (sessionStorage.getItem(sentKey)) return;
-      const med = medication(event.medicationId); new Notification('Time for your scheduled medicine', { body: `${med.name} · ${med.dosage}`, tag: event.id }); sessionStorage.setItem(sentKey, '1');
-      toast(`Time for your scheduled medicine: ${med.name}.`);
-    });
-  }
-  function resetDemo() { const fresh = seed(); saveData(fresh); render(); toast('Demo data has been reset.'); }
-  function bindEvents() {
-    document.addEventListener('click', (event) => {
-      const nav = event.target.closest('[data-view]'); if (nav) { event.preventDefault(); const name = nav.dataset.view; if (location.hash !== `#${name}`) location.hash = name; else showView(name); }
-      if (event.target.closest('[data-open-med-form]')) openMedicineForm();
-      const closer = event.target.closest('[data-close-dialog]'); if (closer) dialog.close();
-      const dose = event.target.closest('[data-dose]'); if (dose) changeDose(dose.dataset.dose, dose.dataset.status);
-      const edit = event.target.closest('[data-edit]'); if (edit) openMedicineForm(medication(edit.dataset.edit));
-      const toggle = event.target.closest('[data-toggle]'); if (toggle) { const med = medication(toggle.dataset.toggle); med.isActive = !med.isActive; saveData(); render(); toast(med.isActive ? 'Medicine schedule resumed.' : 'Medicine schedule paused.'); }
-      const remove = event.target.closest('[data-delete]'); if (remove) { const med = medication(remove.dataset.delete); $('#confirm-dialog').showModal(); $('#confirm-dialog').returnValue = ''; $('#confirm-dialog').dataset.deleteId = med.id; }
-      const revoke = event.target.closest('[data-revoke]'); if (revoke) { const kind = revoke.dataset.kind; state[kind === 'connection' ? 'connections' : 'invited'] = state[kind === 'connection' ? 'connections' : 'invited'].filter((item) => item.id !== revoke.dataset.revoke); saveData(); renderCaregiver(); toast(kind === 'connection' ? 'Caregiver access revoked.' : 'Invitation cancelled.'); }
-    });
-    $('#medicine-form').addEventListener('submit', saveMedication);
-    $('#confirm-dialog').addEventListener('close', (event) => { const confirm = event.currentTarget.returnValue === 'confirm'; const id = event.currentTarget.dataset.deleteId; if (confirm && id) { const med = medication(id); if (med) med.isActive = false; saveData(); render(); toast('Medicine deleted from your active schedule. Previous history is retained.'); } });
-    $('#status-filter').addEventListener('change', renderHistory); $('#date-filter').addEventListener('change', renderHistory);
-    $('#notification-btn').addEventListener('click', enableNotifications); $('#notification-settings').addEventListener('click', enableNotifications);
-    $('#profile-form').addEventListener('submit', (event) => { event.preventDefault(); state.user.name = $('#profile-name').value.trim(); state.user.timezone = $('#timezone').value; saveData(); render(); toast('Your changes have been saved.'); });
-    $('#invite-form').addEventListener('submit', (event) => { event.preventDefault(); const email = $('#invite-email').value.trim().toLowerCase(); if (email === state.user.email.toLowerCase()) { toast('Use a different email address for your caregiver.', true); return; } if (state.invited.some((item) => item.email === email) || state.connections.some((item) => item.email === email)) { toast('An invitation or connection already exists for this email.', true); return; } state.invited.push({ id: makeId(), email, createdAt: new Date().toISOString() }); saveData(); renderCaregiver(); $('#invite-result').textContent = state.mode === 'demo' ? 'Demo invitation created locally. No email was sent.' : 'Invitation created.'; $('#invite-form').reset(); });
-    $('#reset-demo').addEventListener('click', resetDemo); $('#reset-demo-profile').addEventListener('click', resetDemo);
-    $('#profile-shortcut').addEventListener('click', () => { location.hash = 'profile'; });
-    $('#logout-btn').addEventListener('click', () => toast('This educational demo has no sign-in session to end.'));
-    $('#mobile-signout').addEventListener('click', () => { $('#more-menu').hidden = true; toast('This educational demo has no sign-in session to end.'); });
-    $('#menu-btn').addEventListener('click', () => { const open = $('#more-menu').hidden; $('#more-menu').hidden = !open; $('#menu-btn').setAttribute('aria-expanded', String(open)); });
-    $('#more-btn').addEventListener('click', () => { const open = $('#more-menu').hidden; $('#more-menu').hidden = !open; $('#more-btn').setAttribute('aria-expanded', String(open)); });
-    window.addEventListener('hashchange', routeFromHash);
-    document.addEventListener('keydown', (event) => { if (event.key === 'Escape') { $('#more-menu').hidden = true; $('#menu-btn').setAttribute('aria-expanded', 'false'); $('#more-btn').setAttribute('aria-expanded', 'false'); } });
-  }
-  render(); bindEvents(); initWeekdays(); routeFromHash(); window.setInterval(checkReminders, 15000); checkReminders();
+  async function init() { bind(); initWeekdays(); try { const r = await api('/auth/me'); state.user = r.user; await loadData(); showApp(); route(); } catch (e) { state.user = null; showAuth(location.hash === '#register' ? 'register' : location.hash === '#login' ? 'login' : 'landing'); } }
+  init();
 })();
