@@ -56,13 +56,13 @@ This deployment uses one Render Web Service for both the existing frontend and E
    API_BASE_URL=https://YOUR-SERVICE.onrender.com
    ```
 
-   Generate a unique `JWT_SECRET` of at least 32 characters. Do not commit either secret. `API_BASE_URL` is served at runtime through `/config.js`; it can be left unset only when the client and API are hosted at the same Render URL.
+   Generate a unique `JWT_SECRET` of at least 32 characters. Do not commit either secret. The production frontend and API are both served from the Render service URL shown above. `APP_URL` must be the frontend origin with no trailing slash. `API_BASE_URL` is the API origin, also with no trailing slash or `/api` path; it can be empty when the frontend and API share an origin. The browser client appends `/api` and sends cookie credentials.
 4. Create the service, wait for the deploy to finish, then open `https://YOUR-SERVICE.onrender.com/api/health`. It should return `{ "ok": true }`. Open the main URL and register a real account to verify the application.
 5. In MongoDB Atlas, allow network access from Render and ensure the database user in `MONGODB_URI` can access the MediTrack database. Use Atlas data; the service does not create or use demo data.
 
 Render Free web services can sleep after 15 minutes without traffic, so the next request can take about a minute to start. They also use an ephemeral filesystem; this application is unaffected because persistent application data stays in MongoDB Atlas.
 
-Production cookies are `Secure`, `HttpOnly`, and `SameSite=Lax`. Mutating requests require a CSRF token and requests with an unexpected configured origin are rejected. The browser client sends same-origin credentials only.
+Production cookies are `Secure` and `HttpOnly`; mutating requests require a CSRF token and requests with an unexpected configured origin are rejected. Cookies use `SameSite=Lax` for the same-origin Render deployment and `SameSite=None` when the configured frontend and API origins differ. Development allows `http://localhost:3000` and `http://127.0.0.1:3000` in addition to `APP_URL`.
 
 ## Medical notice
 

@@ -6,7 +6,7 @@ const app = express();
 // Render places one reverse proxy in front of this web service.
 app.set('trust proxy', 1);
 const root = __dirname;
-const apiBaseUrl = (process.env.API_BASE_URL || '').replace(/\/$/, '');
+const apiBaseUrl = process.env.API_BASE_URL ? new URL(process.env.API_BASE_URL).origin : '';
 
 // Render serves the client and API from one origin. This runtime file keeps
 // the deployment origin configurable without hard-coding a hostname.

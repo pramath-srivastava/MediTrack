@@ -15,6 +15,19 @@ const app = express();
 app.set('trust proxy', 1);
 const production = process.env.NODE_ENV === 'production';
 const cookieName = production ? '__Host-meditrack' : 'meditrack';
+function normalizeOrigin(value) {
+  if (!value) return '';
+  try {
+    const url = new URL(value);
+    return ['http:', 'https:'].includes(url.protocol) ? url.origin : '';
+  } catch {
+    return '';
+  }
+}
+const appOrigin = normalizeOrigin(process.env.APP_URL);
+const apiOrigin = normalizeOrigin(process.env.API_BASE_URL);
+const allowedOrigins = new Set([appOrigin, ...(!production ? ['http://localhost:3000', 'http://127.0.0.1:3000'] : [])].filter(Boolean));
+const cookieSameSite = production && appOrigin && apiOrigin && appOrigin !== apiOrigin ? 'none' : 'lax';
 const jwtKey = () => {
   if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) throw new Error('JWT_SECRET must contain at least 32 characters.');
   return new TextEncoder().encode(process.env.JWT_SECRET);
@@ -22,7 +35,7 @@ const jwtKey = () => {
 
 app.disable('x-powered-by');
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'same-site' }, contentSecurityPolicy: false }));
-app.use(cors({ origin: process.env.APP_URL || false, credentials: true, methods: ['GET', 'POST', 'PUT', 'DELETE'], allowedHeaders: ['Content-Type', 'X-CSRF-Token'] }));
+app.use(cors({ origin: (origin, callback) => callback(null, !origin || allowedOrigins.has(origin)), credentials: true, methods: ['GET', 'POST', 'PUT', 'DELETE'], allowedHeaders: ['Content-Type', 'X-CSRF-Token'] }));
 app.use(express.json({ limit: '20kb' }));
 app.use(cookieParser());
 app.use('/api/auth', rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: 'draft-7', legacyHeaders: false }));
@@ -82,11 +95,11 @@ const CaregiverConnection = mongoose.models.CaregiverConnection || mongoose.mode
 
 function safeUser(user) { return { id: user._id, name: user.name, email: user.email, role: user.role, timezone: user.timezone }; }
 async function issueToken(user) { return new SignJWT({ sub: user._id.toString(), role: user.role }).setProtectedHeader({ alg: 'HS256' }).setIssuedAt().setExpirationTime('7d').sign(jwtKey()); }
-function setAuthCookie(res, token) { res.cookie(cookieName, token, { httpOnly: true, secure: production, sameSite: 'lax', path: '/', maxAge: 7 * 24 * 60 * 60 * 1000 }); }
+function setAuthCookie(res, token) { res.cookie(cookieName, token, { httpOnly: true, secure: production, sameSite: cookieSameSite, path: '/', maxAge: 7 * 24 * 60 * 60 * 1000 }); }
 function csrf(req, res, next) {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
   const origin = req.get('origin');
-  if (process.env.APP_URL && origin && origin !== process.env.APP_URL) return res.status(403).json({ error: 'Request origin is not allowed.' });
+  if (origin && !allowedOrigins.has(origin)) return res.status(403).json({ error: 'Request origin is not allowed.' });
   if (!req.cookies[cookieName]) return next();
   const token = req.get('x-csrf-token');
   if (!token || token !== req.cookies.csrf) return res.status(403).json({ error: 'CSRF validation failed.' });
@@ -160,19 +173,20 @@ app.get('/api/health', async (req, res) => {
     res.status(503).json({ ok: false, service: 'MediTrack API', database: 'not-connected' });
   }
 });
+app.get('/api/auth/csrf', (req, res) => res.json({ csrfToken: req.cookies.csrf || '' }));
 app.post('/api/auth/register', async (req, res, next) => {
   try {
     await connectDB(); const name = cleanString(req.body.name, 80); const email = cleanString(req.body.email, 254).toLowerCase(); const password = req.body.password; const role = req.body.role;
     if (!name || !validEmail(email) || typeof password !== 'string' || password.length < 8 || password.length > 72 || !['PATIENT', 'CAREGIVER'].includes(role)) throw Object.assign(new Error('Enter a name, valid email, password of at least 8 characters, and account type.'), { status: 422 });
     const timezone = cleanString(req.body.timezone, 80) || 'UTC'; try { new Intl.DateTimeFormat('en-US', { timeZone: timezone }); } catch { throw Object.assign(new Error('Enter a valid timezone.'), { status: 422 }); }
-    const user = await User.create({ name, email, passwordHash: await bcrypt.hash(password, 12), role, timezone }); const token = await issueToken(user); setAuthCookie(res, token); res.cookie('csrf', crypto.randomUUID(), { httpOnly: false, secure: production, sameSite: 'lax', path: '/', maxAge: 7 * 24 * 60 * 60 * 1000 }); res.status(201).json({ user: safeUser(user) });
+    const user = await User.create({ name, email, passwordHash: await bcrypt.hash(password, 12), role, timezone }); const token = await issueToken(user); setAuthCookie(res, token); res.cookie('csrf', crypto.randomUUID(), { httpOnly: false, secure: production, sameSite: cookieSameSite, path: '/', maxAge: 7 * 24 * 60 * 60 * 1000 }); res.status(201).json({ user: safeUser(user) });
   } catch (error) { if (error.code === 11000) return res.status(409).json({ error: 'An account with this email already exists.' }); next(error); }
 });
 app.post('/api/auth/login', async (req, res, next) => {
-  try { await connectDB(); const email = cleanString(req.body.email, 254).toLowerCase(); const user = await User.findOne({ email }).select('+passwordHash'); if (!user || !(await bcrypt.compare(String(req.body.password || ''), user.passwordHash))) return res.status(401).json({ error: 'Email or password is incorrect.' }); setAuthCookie(res, await issueToken(user)); res.cookie('csrf', crypto.randomUUID(), { httpOnly: false, secure: production, sameSite: 'lax', path: '/', maxAge: 7 * 24 * 60 * 60 * 1000 }); res.json({ user: safeUser(user) }); }
+  try { await connectDB(); const email = cleanString(req.body.email, 254).toLowerCase(); const user = await User.findOne({ email }).select('+passwordHash'); if (!user || !(await bcrypt.compare(String(req.body.password || ''), user.passwordHash))) return res.status(401).json({ error: 'Email or password is incorrect.' }); setAuthCookie(res, await issueToken(user)); res.cookie('csrf', crypto.randomUUID(), { httpOnly: false, secure: production, sameSite: cookieSameSite, path: '/', maxAge: 7 * 24 * 60 * 60 * 1000 }); res.json({ user: safeUser(user) }); }
   catch (error) { next(error); }
 });
-app.post('/api/auth/logout', (req, res) => { res.clearCookie(cookieName, { httpOnly: true, secure: production, sameSite: 'lax', path: '/' }); res.clearCookie('csrf', { secure: production, sameSite: 'lax', path: '/' }); res.status(204).end(); });
+app.post('/api/auth/logout', (req, res) => { res.clearCookie(cookieName, { httpOnly: true, secure: production, sameSite: cookieSameSite, path: '/' }); res.clearCookie('csrf', { secure: production, sameSite: cookieSameSite, path: '/' }); res.status(204).end(); });
 app.get('/api/auth/me', auth, async (req, res) => res.json({ user: safeUser(req.user) }));
 
 app.get('/api/profile', auth, (req, res) => res.json({ user: safeUser(req.user) }));
