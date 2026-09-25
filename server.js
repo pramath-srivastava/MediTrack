@@ -3,6 +3,8 @@ const path = require('node:path');
 const api = require('./api');
 
 const app = express();
+// Render places one reverse proxy in front of this web service.
+app.set('trust proxy', 1);
 const root = __dirname;
 const apiBaseUrl = (process.env.API_BASE_URL || '').replace(/\/$/, '');
 

@@ -9,6 +9,10 @@ const { SignJWT, jwtVerify } = require('jose');
 const crypto = require('node:crypto');
 
 const app = express();
+// Render terminates TLS at one reverse proxy. Trust that single hop so
+// express-rate-limit can use the client address supplied by Render, without
+// trusting arbitrary multi-proxy X-Forwarded-For values.
+app.set('trust proxy', 1);
 const production = process.env.NODE_ENV === 'production';
 const cookieName = production ? '__Host-meditrack' : 'meditrack';
 const jwtKey = () => {
@@ -24,10 +28,29 @@ app.use(cookieParser());
 app.use('/api/auth', rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: 'draft-7', legacyHeaders: false }));
 
 let connectPromise;
+function logDatabaseError(context, error) {
+  const name = error?.name || 'Error';
+  const code = error?.code ? `, code ${error.code}` : '';
+  // Do not log an error message: drivers can include a URI, hostname, or
+  // credentials in it. The error type and code are enough for Render logs.
+  console.error(`MediTrack database ${context} (${name}${code}). Check MONGODB_URI, Atlas network access, and database credentials.`);
+}
+mongoose.connection.on('error', (error) => logDatabaseError('connection error', error));
+mongoose.connection.on('disconnected', () => console.warn('MediTrack database disconnected.'));
 async function connectDB() {
   if (mongoose.connection.readyState === 1) return;
-  if (!process.env.MONGODB_URI) throw Object.assign(new Error('MONGODB_URI is not configured.'), { status: 503 });
-  if (!connectPromise) connectPromise = mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 8000, maxPoolSize: 5 }).catch((error) => { connectPromise = null; throw error; });
+  const mongoUri = process.env.MONGODB_URI?.trim();
+  if (!mongoUri) {
+    console.error('MediTrack database is unavailable: MONGODB_URI is not configured.');
+    throw Object.assign(new Error('MONGODB_URI is not configured.'), { status: 503 });
+  }
+  if (!connectPromise) {
+    connectPromise = mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 8000, maxPoolSize: 5 }).catch((error) => {
+      connectPromise = null;
+      logDatabaseError('connection failed', error);
+      throw error;
+    });
+  }
   await connectPromise;
 }
 
@@ -129,7 +152,14 @@ async function authorizedPatient(req, patientId) {
   return Boolean(await CaregiverConnection.exists({ patientId, caregiverId: req.user._id, status: 'ACTIVE' }));
 }
 
-app.get('/api/health', async (req, res) => res.json({ ok: true, service: 'MediTrack API', database: mongoose.connection.readyState === 1 ? 'connected' : 'not-connected' }));
+app.get('/api/health', async (req, res) => {
+  try {
+    await connectDB();
+    res.json({ ok: true, service: 'MediTrack API', database: 'connected' });
+  } catch (error) {
+    res.status(503).json({ ok: false, service: 'MediTrack API', database: 'not-connected' });
+  }
+});
 app.post('/api/auth/register', async (req, res, next) => {
   try {
     await connectDB(); const name = cleanString(req.body.name, 80); const email = cleanString(req.body.email, 254).toLowerCase(); const password = req.body.password; const role = req.body.role;
