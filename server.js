@@ -15,11 +15,35 @@ app.get('/config.js', (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.send(`window.MEDITRACK_API_URL = ${JSON.stringify(apiBaseUrl)};`);
 });
-app.get('/', (req, res) => res.sendFile(path.join(root, 'index.html')));
-app.get('/styles.css', (req, res) => res.sendFile(path.join(root, 'styles.css')));
-app.get('/script.js', (req, res) => res.sendFile(path.join(root, 'script.js')));
+const pages = {
+  '/': 'index.html',
+  '/index.html': 'index.html',
+  '/login': 'login.html',
+  '/login.html': 'login.html',
+  '/register': 'register.html',
+  '/register.html': 'register.html',
+  '/how-it-works': 'how-it-works.html',
+  '/how-it-works.html': 'how-it-works.html',
+  '/privacy': 'privacy.html',
+  '/privacy.html': 'privacy.html',
+  '/terms': 'terms.html',
+  '/terms.html': 'terms.html',
+  '/medical-notice': 'medical-notice.html',
+  '/medical-notice.html': 'medical-notice.html',
+  '/contact': 'contact.html',
+  '/contact.html': 'contact.html',
+  '/app': 'app.html',
+  '/app.html': 'app.html',
+};
+for (const [route, file] of Object.entries(pages)) {
+  app.get(route, (req, res) => res.sendFile(path.join(root, file)));
+}
+
+for (const file of ['styles.css', 'script.js', 'auth.js', 'public.js']) {
+  app.get(`/${file}`, (req, res) => res.sendFile(path.join(root, file)));
+}
 app.use(api);
-app.get('*', (req, res) => res.sendFile(path.join(root, 'index.html')));
+app.use((req, res) => res.status(404).send('Not found'));
 
 const port = Number(process.env.PORT) || 3000;
 app.listen(port, '0.0.0.0', () => console.log(`MediTrack listening on port ${port}`));
