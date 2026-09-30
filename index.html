@@ -20,6 +20,7 @@
   <section id="auth-shell" class="auth-shell" aria-labelledby="auth-title">
     <div class="auth-card"><nav class="public-nav"><a class="brand auth-brand" href="#landing">MediTrack</a><div class="public-nav-links"><a href="#landing">Home</a><a href="#how-it-works">How it works</a><a href="#privacy">Privacy</a><a href="#medical-notice">Medical notice</a></div><button class="public-menu-button" id="public-menu-button" aria-label="Open public navigation" aria-expanded="false">☰</button></nav><div class="public-menu" id="public-menu" hidden><a href="#landing">Home</a><a href="#how-it-works">How it works</a><a href="#privacy">Privacy</a><a href="#terms">Terms</a><a href="#medical-notice">Medical notice</a><a href="#login">Sign in</a><a href="#register">Create account</a></div>
           class="brand-mark">✚</span><span>MediTrack</span></a>
+      <span class="brand-mark">✓</span><span>MediTrack</span>
       <div id="landing-panel" class="auth-panel">
         <p class="eyebrow">YOUR MEDICINE, CLEARLY ORGANIZED</p>
         <h1 id="auth-title">A calmer way to manage your schedule.</h1>
@@ -30,6 +31,7 @@
         </div>
         <div class="auth-actions"><button class="button primary" data-auth-view="register">Create
             account</button><button class="button secondary" data-auth-view="login">Sign in</button></div>
+        <div class="feature-grid"><div><strong>Schedule medicines</strong><span>Plan daily, weekday, or custom doses.</span></div><div><strong>Track every dose</strong><span>Record taken, skipped, and missed activity.</span></div><div><strong>See your history</strong><span>Review medication activity over time.</span></div><div><strong>Understand adherence</strong><span>Use simple analytics to spot patterns.</span></div><div><strong>Connect a caregiver</strong><span>Share access when you choose.</span></div><div><strong>Browser reminders</strong><span>Enable notifications while the app is open.</span></div></div>
         <p class="small muted">MediTrack records your schedule and doses. Follow your clinician’s instructions.</p>
       </div>
       <form id="login-form" class="auth-panel" hidden>
@@ -39,8 +41,14 @@
           autocomplete="current-password" required>
         <p id="login-error" class="form-error" role="alert"></p><button class="button primary" type="submit">Sign
           in</button><button class="text-button" type="button" data-auth-view="register">Need an account?
-          Register</button>
+          Register</button><button class="text-button" type="button" data-auth-view="landing">← Back to home</button>
       </form>
+      <section id="how-it-works-panel" class="auth-panel info-panel" hidden><p class="eyebrow">HOW IT WORKS</p><h1>Make your medication routine easier to follow.</h1><div class="info-steps"><div><strong>1. Create an account</strong><p class="muted">Choose Patient or Caregiver access.</p></div><div><strong>2. Add medicines</strong><p class="muted">Set dosage, dates, times, and selected weekdays.</p></div><div><strong>3. Record doses</strong><p class="muted">Mark doses taken or skipped from Overview.</p></div><div><strong>4. Review progress</strong><p class="muted">Use history and adherence analytics to understand activity.</p></div><div><strong>5. Connect when ready</strong><p class="muted">Invite or accept caregiver access from Caregiver.</p></div></div><button class="text-button" type="button" data-auth-view="landing">← Back to home</button></section>
+      <section id="privacy-panel" class="auth-panel info-panel" hidden><p class="eyebrow">PRIVACY POLICY</p><h1>How MediTrack handles information</h1><p class="muted">This informational template describes current application behavior and should be reviewed by the project owner and a legal professional before production use.</p><h2>Information in your account</h2><p class="muted">MediTrack stores account and profile details, medication schedules, dose records, and caregiver connection information in the application database. Authentication uses HTTP-only session cookies, with CSRF and origin protections provided by the existing server.</p><h2>Notifications and services</h2><p class="muted">Browser notifications require your browser’s permission and work while the page is open. The app uses the project’s configured hosting and database services.</p><button class="text-button" type="button" data-auth-view="landing">← Back to home</button></section>
+      <section id="terms-panel" class="auth-panel info-panel" hidden><p class="eyebrow">TERMS &amp; CONDITIONS</p><h1>Using MediTrack</h1><p class="muted">This general template should be reviewed before production use. You are responsible for your account, the information you enter, and how you share caregiver access.</p><h2>Safe and appropriate use</h2><p class="muted">Keep credentials private, enter accurate schedule information, and follow clinician instructions. MediTrack does not replace professional medical advice. Service availability and browser notifications may vary.</p><button class="text-button" type="button" data-auth-view="landing">← Back to home</button></section>
+      <section id="medical-notice-panel" class="auth-panel info-panel" hidden><p class="eyebrow">MEDICAL NOTICE</p><h1>Use MediTrack as an organizing tool.</h1><p class="muted">MediTrack organizes medication schedules and dose records. It does not diagnose conditions, prescribe medicines, determine dosage, or recommend medication changes.</p><p class="muted">It does not replace a doctor, pharmacist, or other qualified clinician. Follow professional instructions and seek appropriate care for medical questions or emergencies.</p><button class="text-button" type="button" data-auth-view="landing">← Back to home</button></section>
+      <section id="contact-panel" class="auth-panel info-panel" hidden><p class="eyebrow">CONTACT &amp; SUPPORT</p><h1>Need help?</h1><p class="muted">For account or application issues, use the project owner’s established support channel. No support email is configured in this repository.</p><button class="button primary" type="button" data-auth-view="login">Sign in</button><button class="text-button" type="button" data-auth-view="landing">← Back to home</button></section>
+      <footer class="public-footer"><div><strong>MediTrack</strong><p class="small muted">Your medicine, clearly organized.</p></div><div><a href="#landing">Home</a><a href="#how-it-works">How it works</a><a href="#login">Sign in</a><a href="#register">Register</a></div><div><a href="#privacy">Privacy</a><a href="#terms">Terms</a><a href="#medical-notice">Medical notice</a><a href="#contact">Contact / support</a></div><p class="small muted">© 2026 MediTrack</p></footer>
       <form id="register-form" class="auth-panel" hidden>
         <p class="eyebrow">CREATE YOUR ACCOUNT</p>
         <h1>Get started</h1><label for="register-name">Full name</label><input id="register-name" maxlength="80"
@@ -53,7 +61,7 @@
         </select>
         <p id="register-error" class="form-error" role="alert"></p><button class="button primary" type="submit">Create
           account</button><button class="text-button" type="button" data-auth-view="login">Already have an account? Sign
-          in</button>
+          in</button><button class="text-button" type="button" data-auth-view="landing">← Back to home</button>
       </form>
     </div>
   </section>

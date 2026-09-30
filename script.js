@@ -26,7 +26,7 @@
   }
   function toast(message, error = false) { const item = document.createElement('div'); item.className = `toast${error ? ' error' : ''}`; item.textContent = message; $('#toast-region').append(item); setTimeout(() => item.remove(), 4000); }
   function setBusy(button, busy, label) { if (!button) return; button.disabled = busy; if (busy) { button.dataset.label = button.textContent; button.textContent = label || 'Saving…'; } else if (button.dataset.label) button.textContent = button.dataset.label; }
-  function showAuth(view = 'landing') { $('#app-shell').hidden = true; $('#auth-shell').hidden = false; ['landing', 'login', 'register'].forEach(name => { const node = $(`#${name}-panel`) || $(`#${name}-form`); if (node) node.hidden = name !== view; }); }
+  function showAuth(view = 'landing') { $('#app-shell').hidden = true; $('#auth-shell').hidden = false; const views = ['landing', 'login', 'register', 'how-it-works', 'privacy', 'terms', 'medical-notice', 'contact']; views.forEach(name => { const node = $(`#${name}-panel`) || $(`#${name}-form`); if (node) node.hidden = name !== view; }); if ($('#public-menu')) $('#public-menu').hidden = true; }
   function showApp() { $('#auth-shell').hidden = true; $('#app-shell').hidden = false; }
   function isPatient() { return state.user?.role === 'PATIENT'; }
   function renderHeader() {
@@ -57,7 +57,9 @@
   function route() {
     if (!state.user) {
       const hash = location.hash.slice(1);
-      showAuth(hash === 'login' || hash === 'register' ? hash : 'landing');
+      const publicViews = ['landing', 'login', 'register', 'how-it-works', 'privacy', 'terms', 'medical-notice', 'contact'];
+      const privateViews = ['home', 'medicines', 'history', 'analytics', 'caregiver', 'profile'];
+      showAuth(publicViews.includes(hash) ? hash : privateViews.includes(hash) ? 'login' : 'landing');
       return;
     }
     const hash = location.hash.slice(1);
@@ -78,10 +80,10 @@
     $('#profile-form').addEventListener('submit', async e => { e.preventDefault(); try { const r = await api('/profile', { method: 'PUT', body: JSON.stringify({ name: $('#profile-name').value, timezone: $('#timezone').value }) }); state.user = r.user; render(); toast('Profile updated.'); } catch (err) { toast(err.message, true); } });
     $('#invite-form').addEventListener('submit', async e => { e.preventDefault(); const b = e.submitter; $('#invite-result').textContent = ''; try { setBusy(b, true); const r = await api('/caregiver/invite', { method: 'POST', body: JSON.stringify({ email: $('#invite-email').value }) }); $('#invite-result').textContent = `Share this one-time token securely: ${r.invitation.token}`; e.currentTarget.reset(); await renderCaregiver(); } catch (err) { $('#invite-result').textContent = err.message; } finally { setBusy(b, false); } });
     $('#accept-invite-form').addEventListener('submit', async e => { e.preventDefault(); $('#caregiver-error').textContent = ''; try { await api('/caregiver/accept', { method: 'POST', body: JSON.stringify({ token: $('#invite-token').value.trim() }) }); e.currentTarget.reset(); await loadData(); toast('Caregiver access accepted.'); } catch (err) { $('#caregiver-error').textContent = err.message; } });
-    $('#logout-btn').addEventListener('click', logout); $('#mobile-signout').addEventListener('click', logout); $('#profile-shortcut').addEventListener('click', () => { location.hash = 'profile'; }); $('#notification-btn').addEventListener('click', notifications); $('#notification-settings').addEventListener('click', notifications); $('#menu-btn').addEventListener('click', () => { $('#more-menu').hidden = !$('#more-menu').hidden; }); $('#more-btn').addEventListener('click', () => { $('#more-menu').hidden = !$('#more-menu').hidden; }); window.addEventListener('hashchange', route);
+    $('#logout-btn').addEventListener('click', logout); $('#mobile-signout').addEventListener('click', logout); $('#profile-shortcut').addEventListener('click', () => { location.hash = 'profile'; }); $('#notification-btn').addEventListener('click', notifications); $('#notification-settings').addEventListener('click', notifications); $('#menu-btn').addEventListener('click', () => { $('#more-menu').hidden = !$('#more-menu').hidden; }); $('#more-btn').addEventListener('click', () => { $('#more-menu').hidden = !$('#more-menu').hidden; }); $('#public-menu-button').addEventListener('click', () => { const menu = $('#public-menu'); menu.hidden = !menu.hidden; $('#public-menu-button').setAttribute('aria-expanded', String(!menu.hidden)); }); window.addEventListener('hashchange', route);
     document.addEventListener('click', e => { const del = e.target.closest('[data-delete]'); if (del) { $('#confirm-dialog').dataset.id = del.dataset.delete; $('#confirm-dialog').showModal(); } });
     document.addEventListener('click', async e => { const patient = e.target.closest('[data-patient]'); if (!patient) return; try { const result = await api(`/caregiver/patient/${patient.dataset.patient}`); $('#next-dose').innerHTML = `<div class="reminder-card"><strong>${escapeHTML(result.patient.name)}</strong><span>${result.summary.taken} taken of ${result.summary.scheduled} scheduled today${result.summary.adherence == null ? '' : ` · ${result.summary.adherence}% adherence`}</span></div>`; } catch (error) { toast(error.message, true); } });
   }
-  async function init() { bind(); initWeekdays(); try { await refreshCsrf(); const r = await api('/auth/me'); state.user = r.user; await loadData(); showApp(); route(); } catch (e) { state.user = null; showAuth(location.hash === '#register' ? 'register' : location.hash === '#login' ? 'login' : 'landing'); } }
+  async function init() { bind(); initWeekdays(); try { await refreshCsrf(); const r = await api('/auth/me'); state.user = r.user; await loadData(); showApp(); route(); } catch (e) { state.user = null; route(); } }
   init();
 })();
